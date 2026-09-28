@@ -1,0 +1,642 @@
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                        Config X                               ║
+-- ║              Pulo | Interface | Gravidade                     ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players          = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera    = workspace.CurrentCamera
+
+local C = {
+	bg          = Color3.fromRGB(8, 8, 8),
+	panel       = Color3.fromRGB(16, 16, 16),
+	border      = Color3.fromRGB(45, 45, 45),
+	title       = Color3.fromRGB(230, 230, 230),
+	text        = Color3.fromRGB(220, 220, 220),
+	dim         = Color3.fromRGB(140, 140, 140),
+	inputBg     = Color3.fromRGB(12, 12, 12),
+	divider     = Color3.fromRGB(35, 35, 35),
+	on          = Color3.fromRGB(0, 180, 70),
+	off         = Color3.fromRGB(40, 40, 40),
+	apply       = Color3.fromRGB(35, 35, 35),
+	tabActive   = Color3.fromRGB(0, 160, 65),
+	tabInactive = Color3.fromRGB(28, 28, 28),
+}
+
+local connections = {}
+
+local Settings = {
+	JumpHeight     = 80,
+	JumpKey        = Enum.KeyCode.J,
+	Opacity        = 0,
+	PanelScale     = 0.85,
+	GravityOutside = 196.2,
+	GravityInside  = 196.2,
+}
+
+--------------------------------------------------------------------
+-- Utils
+--------------------------------------------------------------------
+function parseNum(str)
+	return tonumber((tostring(str):gsub(",", ".")))
+end
+
+function uiCorner(parent, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 6)
+	c.Parent = parent
+end
+
+function uiStroke(parent, color, thick)
+	local s = Instance.new("UIStroke")
+	s.Color = color or C.border
+	s.Thickness = thick or 1
+	s.Parent = parent
+	return s
+end
+
+function makeDraggable(frame, handle)
+	local dragging, dragStart, startPos, locked = false, nil, nil, false
+	handle = handle or frame
+
+	local function beginDrag(input)
+		if locked then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = frame.Position
+		end
+	end
+
+	local function endDrag(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end
+
+	handle.InputBegan:Connect(beginDrag)
+	handle.InputEnded:Connect(endDrag)
+
+	local conn = UserInputService.InputChanged:Connect(function(input)
+		if locked or not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local d = input.Position - dragStart
+			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end)
+	table.insert(connections, conn)
+
+	local conn2 = UserInputService.InputEnded:Connect(endDrag)
+	table.insert(connections, conn2)
+
+	return function(state)
+		locked = state
+		if state then dragging = false end
+	end, beginDrag
+end
+
+--------------------------------------------------------------------
+-- GUI
+--------------------------------------------------------------------
+local old = playerGui:FindFirstChild("ConfigX")
+if old then old:Destroy() end
+
+local sg = Instance.new("ScreenGui")
+sg.Name = "ConfigX"
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.IgnoreGuiInset = true
+sg.Parent = playerGui
+
+-- Botão lateral
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 110, 0, 28)
+toggleBtn.Position = UDim2.new(0, 14, 0.4, -14)
+toggleBtn.BackgroundColor3 = C.bg
+toggleBtn.Text = "Config X"
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 12
+toggleBtn.TextColor3 = C.text
+toggleBtn.Parent = sg
+uiCorner(toggleBtn, 7)
+uiStroke(toggleBtn, C.border, 1)
+makeDraggable(toggleBtn)
+
+-- Menu
+local menu = Instance.new("Frame")
+menu.Size = UDim2.new(0, 400, 0, 420)
+menu.Position = UDim2.new(0.5, -200, 0.5, -210)
+menu.BackgroundColor3 = C.bg
+menu.Visible = false
+menu.ClipsDescendants = true
+menu.Parent = sg
+uiCorner(menu, 10)
+uiStroke(menu, C.border, 1.5)
+
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = Settings.PanelScale
+uiScale.Parent = menu
+
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.BackgroundColor3 = C.panel
+titleBar.Parent = menu
+uiCorner(titleBar, 10)
+
+local titleFix = Instance.new("Frame")
+titleFix.Size = UDim2.new(1, 0, 0.5, 0)
+titleFix.Position = UDim2.new(0, 0, 0.5, 0)
+titleFix.BackgroundColor3 = C.panel
+titleFix.BorderSizePixel = 0
+titleFix.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.BackgroundTransparency = 1
+titleLabel.Size = UDim2.new(1, -40, 1, 0)
+titleLabel.Position = UDim2.new(0, 12, 0, 0)
+titleLabel.Text = "Config X"
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 14
+titleLabel.TextColor3 = C.title
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+local setMenuLock = makeDraggable(menu, titleBar)
+
+-- Tab Bar
+local tabBarFrame = Instance.new("Frame")
+tabBarFrame.Size = UDim2.new(1, -12, 0, 28)
+tabBarFrame.Position = UDim2.new(0, 6, 0, 40)
+tabBarFrame.BackgroundTransparency = 1
+tabBarFrame.ClipsDescendants = true
+tabBarFrame.Parent = menu
+
+local tabScroll = Instance.new("ScrollingFrame")
+tabScroll.Size = UDim2.new(1, 0, 1, 0)
+tabScroll.BackgroundTransparency = 1
+tabScroll.BorderSizePixel = 0
+tabScroll.ScrollBarThickness = 3
+tabScroll.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70)
+tabScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+tabScroll.ScrollingDirection = Enum.ScrollingDirection.X
+tabScroll.Parent = tabBarFrame
+
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 4)
+tabLayout.Parent = tabScroll
+
+local tabs, pages = {}, {}
+
+function createTab(name)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 80, 0, 26)
+	btn.BackgroundColor3 = C.tabInactive
+	btn.Text = name
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 11
+	btn.TextColor3 = C.dim
+	btn.AutoButtonColor = false
+	btn.Parent = tabScroll
+	uiCorner(btn, 6)
+
+	local page = Instance.new("ScrollingFrame")
+	page.Size = UDim2.new(1, -16, 1, -80)
+	page.Position = UDim2.new(0, 8, 0, 74)
+	page.BackgroundTransparency = 1
+	page.BorderSizePixel = 0
+	page.ScrollBarThickness = 4
+	page.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70)
+	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	page.CanvasSize = UDim2.new(0, 0, 0, 0)
+	page.Visible = false
+	page.Parent = menu
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 4)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 2)
+	pad.PaddingRight = UDim.new(0, 2)
+	pad.Parent = page
+
+	local list = Instance.new("UIListLayout")
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, 8)
+	list.Parent = page
+
+	tabs[name] = btn
+	pages[name] = page
+
+	btn.MouseButton1Click:Connect(function()
+		for n, b in pairs(tabs) do
+			b.BackgroundColor3 = (n == name) and C.tabActive or C.tabInactive
+			b.TextColor3 = (n == name) and C.text or C.dim
+			pages[n].Visible = (n == name)
+		end
+	end)
+
+	return page
+end
+
+local pagePulo      = createTab("Pulo")
+local pageInterface = createTab("Interface")
+local pageGravidade = createTab("Gravidade")
+
+tabs["Pulo"].BackgroundColor3 = C.tabActive
+tabs["Pulo"].TextColor3 = C.text
+pages["Pulo"].Visible = true
+
+function createSection(parent, title, order)
+	local sec = Instance.new("Frame")
+	sec.BackgroundColor3 = C.panel
+	sec.AutomaticSize = Enum.AutomaticSize.Y
+	sec.Size = UDim2.new(1, 0, 0, 0)
+	sec.LayoutOrder = order
+	sec.Parent = parent
+	uiCorner(sec, 8)
+	uiStroke(sec, C.divider, 1)
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 10)
+	pad.PaddingRight = UDim.new(0, 10)
+	pad.Parent = sec
+
+	local list = Instance.new("UIListLayout")
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding = UDim.new(0, 6)
+	list.Parent = sec
+
+	local header = Instance.new("TextLabel")
+	header.BackgroundTransparency = 1
+	header.Size = UDim2.new(1, 0, 0, 16)
+	header.Text = title
+	header.Font = Enum.Font.GothamBold
+	header.TextSize = 12
+	header.TextColor3 = C.title
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.LayoutOrder = 0
+	header.Parent = sec
+
+	return sec
+end
+
+function makeInput(parent, label, default, order)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 24)
+	row.BackgroundTransparency = 1
+	row.LayoutOrder = order
+	row.Parent = parent
+
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.new(0.5, 0, 1, 0)
+	lbl.Text = label
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 11
+	lbl.TextColor3 = C.dim
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(0, 100, 0, 22)
+	box.Position = UDim2.new(1, -100, 0.5, -11)
+	box.BackgroundColor3 = C.inputBg
+	box.Text = tostring(default)
+	box.Font = Enum.Font.GothamMedium
+	box.TextSize = 11
+	box.TextColor3 = C.text
+	box.ClearTextOnFocus = true
+	box.Parent = row
+	uiCorner(box, 5)
+	uiStroke(box, C.border, 1)
+
+	return box
+end
+
+function makeButton(parent, text, order, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 0, 28)
+	btn.BackgroundColor3 = C.apply
+	btn.Text = text
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 12
+	btn.TextColor3 = C.text
+	btn.LayoutOrder = order
+	btn.Parent = parent
+	uiCorner(btn, 6)
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+--------------------------------------------------------------------
+-- ABA PULO
+--------------------------------------------------------------------
+local secJump = createSection(pagePulo, "Pulo do Carro", 1)
+local heightBox = makeInput(secJump, "Altura do Pulo", "80", 1)
+
+makeButton(secJump, "Aplicar Altura", 2, function()
+	local v = parseNum(heightBox.Text)
+	if v then
+		Settings.JumpHeight = math.clamp(v, 10, 500)
+		heightBox.Text = tostring(Settings.JumpHeight)
+	end
+end)
+
+local secKey = createSection(pagePulo, "Tecla de Atalho", 2)
+local keybindBtn = Instance.new("TextButton")
+keybindBtn.Size = UDim2.new(1, 0, 0, 28)
+keybindBtn.BackgroundColor3 = C.apply
+keybindBtn.Text = "Tecla: J"
+keybindBtn.Font = Enum.Font.GothamBold
+keybindBtn.TextSize = 12
+keybindBtn.TextColor3 = C.text
+keybindBtn.LayoutOrder = 1
+keybindBtn.Parent = secKey
+uiCorner(keybindBtn, 6)
+
+local waitingKey = false
+keybindBtn.MouseButton1Click:Connect(function()
+	waitingKey = true
+	keybindBtn.Text = "Pressione uma tecla..."
+	keybindBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 20)
+end)
+
+local secOpacity = createSection(pagePulo, "Opacidade do Botão", 3)
+local opacityBox = makeInput(secOpacity, "Transparência (0-1)", "0", 1)
+
+makeButton(secOpacity, "Aplicar Opacidade", 2, function()
+	local v = parseNum(opacityBox.Text)
+	if v then
+		Settings.Opacity = math.clamp(v, 0, 1)
+		opacityBox.Text = string.format("%.2f", Settings.Opacity)
+		applyJumpButtonOpacity()
+	end
+end)
+
+--------------------------------------------------------------------
+-- ABA INTERFACE
+--------------------------------------------------------------------
+local secUISize = createSection(pageInterface, "Tamanho da Interface", 1)
+
+local uiScaleLabel = Instance.new("TextLabel")
+uiScaleLabel.BackgroundTransparency = 1
+uiScaleLabel.Size = UDim2.new(1, 0, 0, 18)
+uiScaleLabel.Text = string.format("Escala atual: %.2f", Settings.PanelScale)
+uiScaleLabel.Font = Enum.Font.Gotham
+uiScaleLabel.TextSize = 11
+uiScaleLabel.TextColor3 = C.dim
+uiScaleLabel.TextXAlignment = Enum.TextXAlignment.Left
+uiScaleLabel.LayoutOrder = 1
+uiScaleLabel.Parent = secUISize
+
+function setUIScale(newScale, center)
+	newScale = math.clamp(newScale, 0.4, 1.5)
+	Settings.PanelScale = newScale
+	TweenService:Create(uiScale, TweenInfo.new(0.18), { Scale = newScale }):Play()
+	uiScaleLabel.Text = string.format("Escala atual: %.2f", newScale)
+	if center then
+		task.defer(function()
+			task.wait(0.05)
+			local vp = camera.ViewportSize
+			local w = menu.AbsoluteSize.X
+			local h = menu.AbsoluteSize.Y
+			TweenService:Create(menu, TweenInfo.new(0.18), {
+				Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+			}):Play()
+		end)
+	end
+end
+
+local sizeRow = Instance.new("Frame")
+sizeRow.Size = UDim2.new(1, 0, 0, 26)
+sizeRow.BackgroundTransparency = 1
+sizeRow.LayoutOrder = 2
+sizeRow.Parent = secUISize
+
+function sizeBtn(text, scale, x)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0.23, 0, 1, 0)
+	b.Position = UDim2.new(x, 0, 0, 0)
+	b.BackgroundColor3 = C.apply
+	b.Text = text
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.TextColor3 = C.text
+	b.Parent = sizeRow
+	uiCorner(b, 6)
+	b.MouseButton1Click:Connect(function() setUIScale(scale, true) end)
+end
+
+sizeBtn("P", 0.6, 0)
+sizeBtn("M", 0.75, 0.256)
+sizeBtn("G", 1.0, 0.512)
+sizeBtn("XG", 1.25, 0.768)
+
+local secFine = createSection(pageInterface, "Ajuste Fino", 2)
+local fineBox = makeInput(secFine, "Escala (0.4-1.5)", string.format("%.2f", Settings.PanelScale), 1)
+makeButton(secFine, "Aplicar e Centralizar", 2, function()
+	local v = parseNum(fineBox.Text)
+	if v then setUIScale(v, true) end
+end)
+
+local secActions = createSection(pageInterface, "Ações", 3)
+makeButton(secActions, "Centralizar na Tela", 1, function()
+	local vp = camera.ViewportSize
+	local w = menu.AbsoluteSize.X
+	local h = menu.AbsoluteSize.Y
+	TweenService:Create(menu, TweenInfo.new(0.2), {
+		Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+	}):Play()
+end)
+
+--------------------------------------------------------------------
+-- ABA GRAVIDADE
+--------------------------------------------------------------------
+local secGravOut = createSection(pageGravidade, "Gravidade Fora do Carro", 1)
+local gravOutBox = makeInput(secGravOut, "Valor (padrão 196.2)", "196.2", 1)
+makeButton(secGravOut, "Aplicar Fora", 2, function()
+	local v = parseNum(gravOutBox.Text)
+	if v then Settings.GravityOutside = v gravOutBox.Text = tostring(v) end
+end)
+
+local secGravIn = createSection(pageGravidade, "Gravidade Dentro do Carro", 2)
+local gravInBox = makeInput(secGravIn, "Valor (padrão 196.2)", "196.2", 1)
+makeButton(secGravIn, "Aplicar Dentro", 2, function()
+	local v = parseNum(gravInBox.Text)
+	if v then Settings.GravityInside = v gravInBox.Text = tostring(v) end
+end)
+
+--------------------------------------------------------------------
+-- BOTÃO FLUTUANTE 🚀
+--------------------------------------------------------------------
+local jumpBtn = Instance.new("TextButton")
+jumpBtn.Name = "JumpMobileBtn"
+jumpBtn.Size = UDim2.new(0, 60, 0, 60)
+jumpBtn.Position = UDim2.new(1, -80, 0.55, -30)
+jumpBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+jumpBtn.BackgroundTransparency = 0.35
+jumpBtn.Text = "🚀"
+jumpBtn.Font = Enum.Font.GothamBold
+jumpBtn.TextSize = 24
+jumpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+jumpBtn.ZIndex = 20
+jumpBtn.Parent = sg
+uiCorner(jumpBtn, 12)
+uiStroke(jumpBtn, Color3.fromRGB(90, 90, 90), 1.5)
+
+local setJumpLock = makeDraggable(jumpBtn)
+
+local jumpLocked = false
+local jumpLockBtn = Instance.new("TextButton")
+jumpLockBtn.Size = UDim2.new(0, 22, 0, 22)
+jumpLockBtn.Position = UDim2.new(1, -11, 0, -11)
+jumpLockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+jumpLockBtn.BackgroundTransparency = 0.35
+jumpLockBtn.Text = "🔓"
+jumpLockBtn.Font = Enum.Font.GothamBold
+jumpLockBtn.TextSize = 12
+jumpLockBtn.TextColor3 = C.text
+jumpLockBtn.ZIndex = 25
+jumpLockBtn.Parent = jumpBtn
+uiCorner(jumpLockBtn, 6)
+uiStroke(jumpLockBtn, Color3.fromRGB(90, 90, 90), 1)
+
+jumpLockBtn.MouseButton1Click:Connect(function()
+	jumpLocked = not jumpLocked
+	setJumpLock(jumpLocked)
+	jumpLockBtn.Text = jumpLocked and "🔒" or "🔓"
+end)
+
+function applyJumpButtonOpacity()
+	local t = Settings.Opacity
+	jumpBtn.BackgroundTransparency = math.clamp(0.35 + t * 0.65, 0, 1)
+	jumpBtn.TextTransparency = t
+	jumpLockBtn.BackgroundTransparency = math.clamp(0.35 + t * 0.65, 0, 1)
+	jumpLockBtn.TextTransparency = t
+	local st = jumpBtn:FindFirstChildOfClass("UIStroke")
+	if st then st.Transparency = t end
+	local st2 = jumpLockBtn:FindFirstChildOfClass("UIStroke")
+	if st2 then st2.Transparency = t end
+end
+
+--------------------------------------------------------------------
+-- Funções
+--------------------------------------------------------------------
+function doJump()
+	local character = player.Character
+	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	local seat = humanoid.SeatPart
+	if not seat or not seat:IsA("VehicleSeat") then return end
+
+	local vehicle = seat:FindFirstAncestorOfClass("Model") or seat.Parent
+	local root = vehicle and (vehicle.PrimaryPart or seat)
+	if not root then return end
+
+	local vel = root.AssemblyLinearVelocity
+	root.AssemblyLinearVelocity = Vector3.new(vel.X, Settings.JumpHeight, vel.Z)
+end
+
+jumpBtn.MouseButton1Click:Connect(doJump)
+
+--------------------------------------------------------------------
+-- Abrir / Fechar
+--------------------------------------------------------------------
+local menuOpen, animating = false, false
+
+function openMenu()
+	if animating then return end
+	animating = true
+	menu.Visible = true
+	uiScale.Scale = Settings.PanelScale * 0.85
+	menu.BackgroundTransparency = 0.35
+	local t1 = TweenService:Create(uiScale, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = Settings.PanelScale })
+	local t2 = TweenService:Create(menu, TweenInfo.new(0.2), { BackgroundTransparency = 0 })
+	t1:Play()
+	t2:Play()
+	t1.Completed:Connect(function() animating = false end)
+end
+
+function closeMenu()
+	if animating then return end
+	animating = true
+	local t1 = TweenService:Create(uiScale, TweenInfo.new(0.18), { Scale = Settings.PanelScale * 0.85 })
+	local t2 = TweenService:Create(menu, TweenInfo.new(0.16), { BackgroundTransparency = 0.4 })
+	t1:Play()
+	t2:Play()
+	t1.Completed:Connect(function()
+		menu.Visible = false
+		menu.BackgroundTransparency = 0
+		uiScale.Scale = Settings.PanelScale
+		animating = false
+	end)
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+	menuOpen = not menuOpen
+	if menuOpen then
+		toggleBtn.Text = "✕"
+		openMenu()
+	else
+		toggleBtn.Text = "Config X"
+		closeMenu()
+	end
+end)
+
+--------------------------------------------------------------------
+-- Teclado
+--------------------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input, gp)
+	if waitingKey and input.UserInputType == Enum.UserInputType.Keyboard then
+		Settings.JumpKey = input.KeyCode
+		keybindBtn.Text = "Tecla: " .. input.KeyCode.Name
+		keybindBtn.BackgroundColor3 = C.apply
+		waitingKey = false
+		return
+	end
+
+	if not waitingKey and input.KeyCode == Settings.JumpKey and not gp then
+		doJump()
+	end
+end)
+
+--------------------------------------------------------------------
+-- Gravidade
+--------------------------------------------------------------------
+RunService.Heartbeat:Connect(function()
+	local character = player.Character
+	if not character then
+		workspace.Gravity = Settings.GravityOutside
+		return
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
+		workspace.Gravity = Settings.GravityInside
+	else
+		workspace.Gravity = Settings.GravityOutside
+	end
+end)
+
+task.defer(function()
+	task.wait(0.15)
+	local vp = camera.ViewportSize
+	local w = menu.AbsoluteSize.X
+	local h = menu.AbsoluteSize.Y
+	if w > 0 and h > 0 then
+		menu.Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+	end
+end)
+
+print("Config X carregado!")
