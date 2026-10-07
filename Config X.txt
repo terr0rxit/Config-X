@@ -1,6 +1,6 @@
 -- ╔══════════════════════════════════════════════════════════════╗
 -- ║                        Config X                               ║
--- ║              Pulo | Interface | Gravidade                     ║
+-- ║  Pulo | Interface | Gravidade | Suspensão | Stance | TP | Cam ║
 -- ╚══════════════════════════════════════════════════════════════╝
 
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -15,46 +15,82 @@ local playerGui = player:WaitForChild("PlayerGui")
 local camera    = workspace.CurrentCamera
 
 local C = {
-	bg          = Color3.fromRGB(8, 8, 8),
-	panel       = Color3.fromRGB(16, 16, 16),
-	border      = Color3.fromRGB(45, 45, 45),
-	title       = Color3.fromRGB(230, 230, 230),
-	text        = Color3.fromRGB(220, 220, 220),
-	dim         = Color3.fromRGB(140, 140, 140),
-	inputBg     = Color3.fromRGB(12, 12, 12),
-	divider     = Color3.fromRGB(35, 35, 35),
-	on          = Color3.fromRGB(0, 180, 70),
-	off         = Color3.fromRGB(40, 40, 40),
-	apply       = Color3.fromRGB(35, 35, 35),
-	tabActive   = Color3.fromRGB(0, 160, 65),
+	bg = Color3.fromRGB(8, 8, 8),
+	panel = Color3.fromRGB(16, 16, 16),
+	border = Color3.fromRGB(45, 45, 45),
+	title = Color3.fromRGB(230, 230, 230),
+	text = Color3.fromRGB(220, 220, 220),
+	dim = Color3.fromRGB(140, 140, 140),
+	inputBg = Color3.fromRGB(12, 12, 12),
+	divider = Color3.fromRGB(35, 35, 35),
+	on = Color3.fromRGB(0, 180, 70),
+	off = Color3.fromRGB(40, 40, 40),
+	apply = Color3.fromRGB(35, 35, 35),
+	red = Color3.fromRGB(170, 30, 30),
+	tabActive = Color3.fromRGB(0, 160, 65),
 	tabInactive = Color3.fromRGB(28, 28, 28),
 }
 
 local connections = {}
 
 local Settings = {
-	JumpHeight     = 80,
-	JumpKey        = Enum.KeyCode.J,
-	Opacity        = 0,
-	PanelScale     = 0.85,
+	JumpHeight = 80,
+	JumpKey = Enum.KeyCode.J,
+	Opacity = 0,
+	AirBtnOpacity = 0,
+	PanelScale = 0.85,
 	GravityOutside = 196.2,
-	GravityInside  = 196.2,
+	GravityInside = 196.2,
 }
+
+local FrontStance = { PositionX = 0, PositionY = 0, PositionZ = 0, Camber = 0 }
+local RearStance  = { PositionX = 0, PositionY = 0, PositionZ = 0, Camber = 0 }
+
+local Air = {
+	Lowered = false,
+	FrontHeightUp = 0, RearHeightUp = 0,
+	FrontHeightDown = 0.50, RearHeightDown = 0.50,
+	Speed = 0.55, Ease = 0.12, FrontLag = 0.15, RearLag = 0,
+	CurrentFront = 0, CurrentRear = 0,
+	Key = Enum.KeyCode.H,
+	TiltEnabled = false,
+	FrontTiltAngle = 0.15, RearTiltAngle = 0.15, TiltSpeed = 0.40,
+	CurrentFrontTilt = 0, CurrentRearTilt = 0,
+}
+
+local tpState = {
+	savedCFrame = nil,
+	keybind = Enum.KeyCode.T,
+	waitingKey = false,
+	mobileEnabled = false,
+	btnSize = 60,
+	transparency = 0,
+}
+
+local camState = { spectating = false, spectateTarget = nil, spectateIndex = 1 }
+local fixCamEnabled = false
+
+local originalOffsets = {}
+local lastCar = nil
+local wheelNames = { "FL", "FR", "RL", "RR" }
+local airBtn, airStatus, airLockBtn, jumpBtn, jumpLockBtn
+local tpMobileBtn, tpLockBtn
+local stanceActiveTab = "FRENTE"
 
 --------------------------------------------------------------------
 -- Utils
 --------------------------------------------------------------------
-function parseNum(str)
+local function parseNum(str)
 	return tonumber((tostring(str):gsub(",", ".")))
 end
 
-function uiCorner(parent, r)
+local function uiCorner(parent, r)
 	local c = Instance.new("UICorner")
 	c.CornerRadius = UDim.new(0, r or 6)
 	c.Parent = parent
 end
 
-function uiStroke(parent, color, thick)
+local function uiStroke(parent, color, thick)
 	local s = Instance.new("UIStroke")
 	s.Color = color or C.border
 	s.Thickness = thick or 1
@@ -62,10 +98,26 @@ function uiStroke(parent, color, thick)
 	return s
 end
 
-function makeDraggable(frame, handle)
+local function setBtnOpacity(btn, lockBtn, t)
+	t = math.clamp(t, 0, 1)
+	local bgT = math.clamp(0.35 + t * 0.65, 0, 1)
+	if btn then
+		btn.BackgroundTransparency = bgT
+		btn.TextTransparency = t
+		local st = btn:FindFirstChildOfClass("UIStroke")
+		if st then st.Transparency = t end
+	end
+	if lockBtn then
+		lockBtn.BackgroundTransparency = bgT
+		lockBtn.TextTransparency = t
+		local st = lockBtn:FindFirstChildOfClass("UIStroke")
+		if st then st.Transparency = t end
+	end
+end
+
+local function makeDraggable(frame, handle)
 	local dragging, dragStart, startPos, locked = false, nil, nil, false
 	handle = handle or frame
-
 	local function beginDrag(input)
 		if locked then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -74,32 +126,238 @@ function makeDraggable(frame, handle)
 			startPos = frame.Position
 		end
 	end
-
 	local function endDrag(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
 		end
 	end
-
 	handle.InputBegan:Connect(beginDrag)
 	handle.InputEnded:Connect(endDrag)
-
-	local conn = UserInputService.InputChanged:Connect(function(input)
+	table.insert(connections, UserInputService.InputChanged:Connect(function(input)
 		if locked or not dragging then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 			local d = input.Position - dragStart
 			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 		end
-	end)
-	table.insert(connections, conn)
-
-	local conn2 = UserInputService.InputEnded:Connect(endDrag)
-	table.insert(connections, conn2)
-
+	end))
+	table.insert(connections, UserInputService.InputEnded:Connect(endDrag))
 	return function(state)
 		locked = state
 		if state then dragging = false end
-	end, beginDrag
+	end
+end
+
+--------------------------------------------------------------------
+-- Carro + stance + ar
+--------------------------------------------------------------------
+local function findPlayerCar()
+	local folder = workspace:FindFirstChild("Cars")
+	if not folder then return nil end
+	local myName = player.Name
+	for _, car in ipairs(folder:GetChildren()) do
+		if car:IsA("Model") then
+			if car.Name:lower():find(myName:lower()) then return car end
+			local stats = car:FindFirstChild("Stats")
+			if stats then
+				local owner = stats:FindFirstChild("Owner")
+				if owner and tostring(owner.Value):lower() == myName:lower() then return car end
+			end
+			local owner = car:FindFirstChild("Owner") or car:FindFirstChild("Player")
+			if owner and tostring(owner.Value):lower() == myName:lower() then return car end
+			local seat = car:FindFirstChildWhichIsA("VehicleSeat", true)
+			if seat and seat.Occupant and player.Character and seat.Occupant.Parent == player.Character then
+				return car
+			end
+		end
+	end
+	return nil
+end
+
+local function getWheelAttachments(car)
+	local attachments = {}
+	for _, name in ipairs(wheelNames) do
+		local wheelModel = car:FindFirstChild(name)
+		if wheelModel then
+			local holder = wheelModel:FindFirstChild("Holder")
+			if holder then
+				local att = holder:FindFirstChild("Attachment0")
+				if att and att:IsA("Attachment") then
+					attachments[name] = att
+					if not originalOffsets[att] then
+						originalOffsets[att] = { CFrame = att.CFrame }
+					end
+				end
+			end
+		end
+	end
+	return attachments
+end
+
+-- Base permanente (stance) + extra ar por cima
+local function applyWheels()
+	local car = findPlayerCar()
+	if not car then return end
+	for name, att in pairs(getWheelAttachments(car)) do
+		local orig = originalOffsets[att]
+		if orig then
+			local isRear = (name == "RL" or name == "RR")
+			local stance = isRear and RearStance or FrontStance
+			local mx = (name == "FL" or name == "RL") and -1 or 1
+			local cs = (name == "FL" or name == "RL") and -1 or 1
+
+			local baseX = stance.PositionX or 0
+			local baseY = stance.PositionY or 0
+			local baseZ = stance.PositionZ or 0
+			local baseCamber = stance.Camber or 0
+
+			local extraY = isRear and Air.CurrentRear or Air.CurrentFront
+			local extraCamber = 0
+			if Air.TiltEnabled then
+				extraCamber = isRear and Air.CurrentRearTilt or Air.CurrentFrontTilt
+			end
+
+			local pos = Vector3.new(
+				orig.CFrame.Position.X + baseX * mx,
+				orig.CFrame.Position.Y + baseY + extraY,
+				orig.CFrame.Position.Z + baseZ
+			)
+			att.CFrame = CFrame.new(pos) * orig.CFrame.Rotation * CFrame.Angles(0, 0, (baseCamber + extraCamber) * cs)
+		end
+	end
+end
+
+local function refreshAirStatus()
+	if not airStatus then return end
+	if Air.Lowered then
+		airStatus.Text = "Estado: REBAIXADO"
+		airStatus.TextColor3 = Color3.fromRGB(200, 140, 40)
+	else
+		airStatus.Text = "Estado: ALTO"
+		airStatus.TextColor3 = C.on
+	end
+end
+
+local function refreshAirBtnIcon()
+	if airBtn then airBtn.Text = Air.Lowered and "^" or "v" end
+end
+
+local function applyJumpButtonOpacity()
+	setBtnOpacity(jumpBtn, jumpLockBtn, Settings.Opacity)
+end
+
+local function applyAirBtnOpacity()
+	setBtnOpacity(airBtn, airLockBtn, Settings.AirBtnOpacity)
+end
+
+local function applyTPBtnOpacity()
+	setBtnOpacity(tpMobileBtn, tpLockBtn, tpState.transparency)
+end
+
+local function toggleAir()
+	Air.Lowered = not Air.Lowered
+	refreshAirStatus()
+	refreshAirBtnIcon()
+end
+
+--------------------------------------------------------------------
+-- TELEPORTE (Drift X)
+--------------------------------------------------------------------
+local function SavePosition()
+	local car = findPlayerCar()
+	if car then
+		tpState.savedCFrame = car:GetPivot()
+		print("[Config X] Posição do carro salva!")
+	else
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			tpState.savedCFrame = hrp.CFrame
+			print("[Config X] Posição do personagem salva")
+		end
+	end
+end
+
+local function TeleportToSaved()
+	if not tpState.savedCFrame then
+		warn("[Config X] Nenhuma posição salva!")
+		return
+	end
+	local car = findPlayerCar()
+	if not car then
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if hrp then hrp.CFrame = tpState.savedCFrame end
+		return
+	end
+	for _, part in pairs(car:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	local primary = car.PrimaryPart or car:FindFirstChildWhichIsA("BasePart")
+	if not primary then
+		car:PivotTo(tpState.savedCFrame)
+		return
+	end
+	car:PivotTo(tpState.savedCFrame)
+	local tween = TweenService:Create(primary, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		CFrame = tpState.savedCFrame
+	})
+	tween:Play()
+	tween.Completed:Wait()
+	pcall(function() car:PivotTo(tpState.savedCFrame) end)
+end
+
+--------------------------------------------------------------------
+-- CÂMERA / SPECTATE (Drift X)
+--------------------------------------------------------------------
+local function getPlayerList(includeSelf)
+	local list = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if (includeSelf or p ~= player) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+			table.insert(list, p)
+		end
+	end
+	return list
+end
+
+local function restoreNormalCam()
+	camera.CameraType = Enum.CameraType.Custom
+	if player.Character then
+		local h = player.Character:FindFirstChildOfClass("Humanoid")
+		if h then camera.CameraSubject = h end
+	end
+end
+
+local function stopSpectate()
+	camState.spectating = false
+	camState.spectateTarget = nil
+	restoreNormalCam()
+end
+
+local function startSpectate(target)
+	if not target or not target.Character then return false end
+	local hum = target.Character:FindFirstChildOfClass("Humanoid")
+	local root = target.Character:FindFirstChild("HumanoidRootPart")
+	local subject = hum or root
+	if not subject then return false end
+	camState.spectating = true
+	camState.spectateTarget = target
+	camera.CameraType = Enum.CameraType.Custom
+	camera.CameraSubject = subject
+	return true
+end
+
+local function cycleSpectate(dir)
+	local list = getPlayerList(true)
+	if #list == 0 then stopSpectate() return nil end
+	camState.spectateIndex += dir
+	if camState.spectateIndex > #list then camState.spectateIndex = 1 end
+	if camState.spectateIndex < 1 then camState.spectateIndex = #list end
+	local t = list[camState.spectateIndex]
+	startSpectate(t)
+	return t
 end
 
 --------------------------------------------------------------------
@@ -115,7 +373,6 @@ sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.IgnoreGuiInset = true
 sg.Parent = playerGui
 
--- Botão lateral
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(0, 110, 0, 28)
 toggleBtn.Position = UDim2.new(0, 14, 0.4, -14)
@@ -129,10 +386,9 @@ uiCorner(toggleBtn, 7)
 uiStroke(toggleBtn, C.border, 1)
 makeDraggable(toggleBtn)
 
--- Menu
 local menu = Instance.new("Frame")
-menu.Size = UDim2.new(0, 400, 0, 420)
-menu.Position = UDim2.new(0.5, -200, 0.5, -210)
+menu.Size = UDim2.new(0, 400, 0, 520)
+menu.Position = UDim2.new(0.5, -200, 0.5, -260)
 menu.BackgroundColor3 = C.bg
 menu.Visible = false
 menu.ClipsDescendants = true
@@ -144,7 +400,6 @@ local uiScale = Instance.new("UIScale")
 uiScale.Scale = Settings.PanelScale
 uiScale.Parent = menu
 
--- Title Bar
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 34)
 titleBar.BackgroundColor3 = C.panel
@@ -168,10 +423,8 @@ titleLabel.TextSize = 14
 titleLabel.TextColor3 = C.title
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
+makeDraggable(menu, titleBar)
 
-local setMenuLock = makeDraggable(menu, titleBar)
-
--- Tab Bar
 local tabBarFrame = Instance.new("Frame")
 tabBarFrame.Size = UDim2.new(1, -12, 0, 28)
 tabBarFrame.Position = UDim2.new(0, 6, 0, 40)
@@ -197,13 +450,13 @@ tabLayout.Parent = tabScroll
 
 local tabs, pages = {}, {}
 
-function createTab(name)
+local function createTab(name)
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 80, 0, 26)
+	btn.Size = UDim2.new(0, 72, 0, 26)
 	btn.BackgroundColor3 = C.tabInactive
 	btn.Text = name
 	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 11
+	btn.TextSize = 10
 	btn.TextColor3 = C.dim
 	btn.AutoButtonColor = false
 	btn.Parent = tabScroll
@@ -235,7 +488,6 @@ function createTab(name)
 
 	tabs[name] = btn
 	pages[name] = page
-
 	btn.MouseButton1Click:Connect(function()
 		for n, b in pairs(tabs) do
 			b.BackgroundColor3 = (n == name) and C.tabActive or C.tabInactive
@@ -243,19 +495,22 @@ function createTab(name)
 			pages[n].Visible = (n == name)
 		end
 	end)
-
 	return page
 end
 
-local pagePulo      = createTab("Pulo")
+local pagePulo = createTab("Pulo")
 local pageInterface = createTab("Interface")
 local pageGravidade = createTab("Gravidade")
+local pageSuspensao = createTab("Suspensão")
+local pageStance = createTab("Stance")
+local pageTeleporte = createTab("Teleporte")
+local pageCamera = createTab("Câmera")
 
 tabs["Pulo"].BackgroundColor3 = C.tabActive
 tabs["Pulo"].TextColor3 = C.text
 pages["Pulo"].Visible = true
 
-function createSection(parent, title, order)
+local function createSection(parent, title, order)
 	local sec = Instance.new("Frame")
 	sec.BackgroundColor3 = C.panel
 	sec.AutomaticSize = Enum.AutomaticSize.Y
@@ -264,19 +519,16 @@ function createSection(parent, title, order)
 	sec.Parent = parent
 	uiCorner(sec, 8)
 	uiStroke(sec, C.divider, 1)
-
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, 8)
 	pad.PaddingBottom = UDim.new(0, 8)
 	pad.PaddingLeft = UDim.new(0, 10)
 	pad.PaddingRight = UDim.new(0, 10)
 	pad.Parent = sec
-
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
 	list.Padding = UDim.new(0, 6)
 	list.Parent = sec
-
 	local header = Instance.new("TextLabel")
 	header.BackgroundTransparency = 1
 	header.Size = UDim2.new(1, 0, 0, 16)
@@ -287,27 +539,24 @@ function createSection(parent, title, order)
 	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.LayoutOrder = 0
 	header.Parent = sec
-
 	return sec
 end
 
-function makeInput(parent, label, default, order)
+local function makeInput(parent, label, default, order)
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, 0, 0, 24)
 	row.BackgroundTransparency = 1
 	row.LayoutOrder = order
 	row.Parent = parent
-
 	local lbl = Instance.new("TextLabel")
 	lbl.BackgroundTransparency = 1
-	lbl.Size = UDim2.new(0.5, 0, 1, 0)
+	lbl.Size = UDim2.new(0.55, 0, 1, 0)
 	lbl.Text = label
 	lbl.Font = Enum.Font.Gotham
 	lbl.TextSize = 11
 	lbl.TextColor3 = C.dim
 	lbl.TextXAlignment = Enum.TextXAlignment.Left
 	lbl.Parent = row
-
 	local box = Instance.new("TextBox")
 	box.Size = UDim2.new(0, 100, 0, 22)
 	box.Position = UDim2.new(1, -100, 0.5, -11)
@@ -320,11 +569,10 @@ function makeInput(parent, label, default, order)
 	box.Parent = row
 	uiCorner(box, 5)
 	uiStroke(box, C.border, 1)
-
 	return box
 end
 
-function makeButton(parent, text, order, callback)
+local function makeButton(parent, text, order, callback)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, 0, 0, 28)
 	btn.BackgroundColor3 = C.apply
@@ -339,42 +587,134 @@ function makeButton(parent, text, order, callback)
 	return btn
 end
 
+local function makeToggle(parent, label, default, order, callback)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 24)
+	row.BackgroundTransparency = 1
+	row.LayoutOrder = order
+	row.Parent = parent
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.new(0.7, 0, 1, 0)
+	lbl.Text = label
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 11
+	lbl.TextColor3 = C.dim
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 44, 0, 20)
+	btn.Position = UDim2.new(1, -44, 0.5, -10)
+	btn.BackgroundColor3 = default and C.on or C.off
+	btn.Text = default and "ON" or "OFF"
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 10
+	btn.TextColor3 = C.text
+	btn.AutoButtonColor = false
+	btn.Parent = row
+	uiCorner(btn, 10)
+	local state = default
+	btn.MouseButton1Click:Connect(function()
+		state = not state
+		btn.Text = state and "ON" or "OFF"
+		TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundColor3 = state and C.on or C.off }):Play()
+		if callback then callback(state) end
+	end)
+end
+
+local function makeStanceRow(parent, label, configKey, order, getConfig, setConfig, step)
+	step = step or 0.05
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 26)
+	row.BackgroundTransparency = 1
+	row.LayoutOrder = order
+	row.Parent = parent
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Size = UDim2.new(0.42, 0, 1, 0)
+	lbl.Text = label
+	lbl.Font = Enum.Font.Gotham
+	lbl.TextSize = 11
+	lbl.TextColor3 = C.dim
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = row
+	local selector = Instance.new("Frame")
+	selector.Size = UDim2.new(0, 130, 0, 24)
+	selector.Position = UDim2.new(1, -130, 0.5, -12)
+	selector.BackgroundColor3 = C.inputBg
+	selector.Parent = row
+	uiCorner(selector, 5)
+	uiStroke(selector, C.border, 1)
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(1, -48, 1, 0)
+	box.Position = UDim2.new(0, 24, 0, 0)
+	box.BackgroundTransparency = 1
+	box.Text = "0.00"
+	box.Font = Enum.Font.GothamMedium
+	box.TextSize = 11
+	box.TextColor3 = C.text
+	box.Parent = selector
+	local dec = Instance.new("TextButton")
+	dec.Size = UDim2.new(0, 24, 1, 0)
+	dec.BackgroundTransparency = 1
+	dec.Text = "<"
+	dec.TextColor3 = C.dim
+	dec.TextSize = 14
+	dec.Font = Enum.Font.GothamBold
+	dec.Parent = selector
+	local inc = Instance.new("TextButton")
+	inc.Size = UDim2.new(0, 24, 1, 0)
+	inc.Position = UDim2.new(1, -24, 0, 0)
+	inc.BackgroundTransparency = 1
+	inc.Text = ">"
+	inc.TextColor3 = C.dim
+	inc.TextSize = 14
+	inc.Font = Enum.Font.GothamBold
+	inc.Parent = selector
+	local function updateValue(v)
+		setConfig(configKey, v)
+		box.Text = string.format("%.3f", v)
+		applyWheels()
+	end
+	dec.MouseButton1Click:Connect(function() updateValue(getConfig(configKey) - step) end)
+	inc.MouseButton1Click:Connect(function() updateValue(getConfig(configKey) + step) end)
+	box.FocusLost:Connect(function()
+		local v = parseNum(box.Text)
+		if v then updateValue(v) else box.Text = string.format("%.3f", getConfig(configKey)) end
+	end)
+	return box
+end
+
 --------------------------------------------------------------------
--- ABA PULO
+-- PULO
 --------------------------------------------------------------------
 local secJump = createSection(pagePulo, "Pulo do Carro", 1)
-local heightBox = makeInput(secJump, "Altura do Pulo", "80", 1)
-
+local jumpHeightBox = makeInput(secJump, "Altura (10-800)", "80", 1)
 makeButton(secJump, "Aplicar Altura", 2, function()
-	local v = parseNum(heightBox.Text)
-	if v then
-		Settings.JumpHeight = math.clamp(v, 10, 500)
-		heightBox.Text = tostring(Settings.JumpHeight)
-	end
+	local v = parseNum(jumpHeightBox.Text)
+	if v then Settings.JumpHeight = math.clamp(v, 10, 800) jumpHeightBox.Text = tostring(Settings.JumpHeight) end
 end)
 
 local secKey = createSection(pagePulo, "Tecla de Atalho", 2)
-local keybindBtn = Instance.new("TextButton")
-keybindBtn.Size = UDim2.new(1, 0, 0, 28)
-keybindBtn.BackgroundColor3 = C.apply
-keybindBtn.Text = "Tecla: J"
-keybindBtn.Font = Enum.Font.GothamBold
-keybindBtn.TextSize = 12
-keybindBtn.TextColor3 = C.text
-keybindBtn.LayoutOrder = 1
-keybindBtn.Parent = secKey
-uiCorner(keybindBtn, 6)
-
-local waitingKey = false
-keybindBtn.MouseButton1Click:Connect(function()
-	waitingKey = true
-	keybindBtn.Text = "Pressione uma tecla..."
-	keybindBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 20)
+local jumpKeyBtn = Instance.new("TextButton")
+jumpKeyBtn.Size = UDim2.new(1, 0, 0, 28)
+jumpKeyBtn.BackgroundColor3 = C.apply
+jumpKeyBtn.Text = "Tecla: J"
+jumpKeyBtn.Font = Enum.Font.GothamBold
+jumpKeyBtn.TextSize = 12
+jumpKeyBtn.TextColor3 = C.text
+jumpKeyBtn.LayoutOrder = 1
+jumpKeyBtn.Parent = secKey
+uiCorner(jumpKeyBtn, 6)
+local waitingJumpKey = false
+jumpKeyBtn.MouseButton1Click:Connect(function()
+	waitingJumpKey = true
+	jumpKeyBtn.Text = "Pressione uma tecla..."
+	jumpKeyBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 20)
 end)
 
-local secOpacity = createSection(pagePulo, "Opacidade do Botão", 3)
+local secOpacity = createSection(pagePulo, "Opacidade Botão Pulo + Cadeado", 3)
 local opacityBox = makeInput(secOpacity, "Transparência (0-1)", "0", 1)
-
 makeButton(secOpacity, "Aplicar Opacidade", 2, function()
 	local v = parseNum(opacityBox.Text)
 	if v then
@@ -385,10 +725,9 @@ makeButton(secOpacity, "Aplicar Opacidade", 2, function()
 end)
 
 --------------------------------------------------------------------
--- ABA INTERFACE
+-- INTERFACE
 --------------------------------------------------------------------
 local secUISize = createSection(pageInterface, "Tamanho da Interface", 1)
-
 local uiScaleLabel = Instance.new("TextLabel")
 uiScaleLabel.BackgroundTransparency = 1
 uiScaleLabel.Size = UDim2.new(1, 0, 0, 18)
@@ -400,8 +739,8 @@ uiScaleLabel.TextXAlignment = Enum.TextXAlignment.Left
 uiScaleLabel.LayoutOrder = 1
 uiScaleLabel.Parent = secUISize
 
-function setUIScale(newScale, center)
-	newScale = math.clamp(newScale, 0.4, 1.5)
+local function setUIScale(newScale, center)
+	newScale = math.clamp(newScale, 0.35, 1.8)
 	Settings.PanelScale = newScale
 	TweenService:Create(uiScale, TweenInfo.new(0.18), { Scale = newScale }):Play()
 	uiScaleLabel.Text = string.format("Escala atual: %.2f", newScale)
@@ -409,10 +748,8 @@ function setUIScale(newScale, center)
 		task.defer(function()
 			task.wait(0.05)
 			local vp = camera.ViewportSize
-			local w = menu.AbsoluteSize.X
-			local h = menu.AbsoluteSize.Y
 			TweenService:Create(menu, TweenInfo.new(0.18), {
-				Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+				Position = UDim2.new(0, (vp.X - menu.AbsoluteSize.X) / 2, 0, (vp.Y - menu.AbsoluteSize.Y) / 2)
 			}):Play()
 		end)
 	end
@@ -423,8 +760,7 @@ sizeRow.Size = UDim2.new(1, 0, 0, 26)
 sizeRow.BackgroundTransparency = 1
 sizeRow.LayoutOrder = 2
 sizeRow.Parent = secUISize
-
-function sizeBtn(text, scale, x)
+local function sizeBtn(text, scale, x)
 	local b = Instance.new("TextButton")
 	b.Size = UDim2.new(0.23, 0, 1, 0)
 	b.Position = UDim2.new(x, 0, 0, 0)
@@ -437,51 +773,319 @@ function sizeBtn(text, scale, x)
 	uiCorner(b, 6)
 	b.MouseButton1Click:Connect(function() setUIScale(scale, true) end)
 end
-
 sizeBtn("P", 0.6, 0)
 sizeBtn("M", 0.75, 0.256)
 sizeBtn("G", 1.0, 0.512)
 sizeBtn("XG", 1.25, 0.768)
 
 local secFine = createSection(pageInterface, "Ajuste Fino", 2)
-local fineBox = makeInput(secFine, "Escala (0.4-1.5)", string.format("%.2f", Settings.PanelScale), 1)
+local fineBox = makeInput(secFine, "Escala (0.35-1.8)", "0.85", 1)
 makeButton(secFine, "Aplicar e Centralizar", 2, function()
 	local v = parseNum(fineBox.Text)
 	if v then setUIScale(v, true) end
 end)
-
-local secActions = createSection(pageInterface, "Ações", 3)
-makeButton(secActions, "Centralizar na Tela", 1, function()
+makeButton(createSection(pageInterface, "Ações", 3), "Centralizar na Tela", 1, function()
 	local vp = camera.ViewportSize
-	local w = menu.AbsoluteSize.X
-	local h = menu.AbsoluteSize.Y
 	TweenService:Create(menu, TweenInfo.new(0.2), {
-		Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+		Position = UDim2.new(0, (vp.X - menu.AbsoluteSize.X) / 2, 0, (vp.Y - menu.AbsoluteSize.Y) / 2)
 	}):Play()
 end)
 
 --------------------------------------------------------------------
--- ABA GRAVIDADE
+-- GRAVIDADE
 --------------------------------------------------------------------
 local secGravOut = createSection(pageGravidade, "Gravidade Fora do Carro", 1)
-local gravOutBox = makeInput(secGravOut, "Valor (padrão 196.2)", "196.2", 1)
+local gravOutBox = makeInput(secGravOut, "Valor (0-500)", "196.2", 1)
 makeButton(secGravOut, "Aplicar Fora", 2, function()
 	local v = parseNum(gravOutBox.Text)
-	if v then Settings.GravityOutside = v gravOutBox.Text = tostring(v) end
+	if v then Settings.GravityOutside = math.clamp(v, 0, 500) gravOutBox.Text = tostring(Settings.GravityOutside) end
 end)
-
 local secGravIn = createSection(pageGravidade, "Gravidade Dentro do Carro", 2)
-local gravInBox = makeInput(secGravIn, "Valor (padrão 196.2)", "196.2", 1)
+local gravInBox = makeInput(secGravIn, "Valor (0-500)", "196.2", 1)
 makeButton(secGravIn, "Aplicar Dentro", 2, function()
 	local v = parseNum(gravInBox.Text)
-	if v then Settings.GravityInside = v gravInBox.Text = tostring(v) end
+	if v then Settings.GravityInside = math.clamp(v, 0, 500) gravInBox.Text = tostring(Settings.GravityInside) end
 end)
 
 --------------------------------------------------------------------
--- BOTÃO FLUTUANTE 🚀
+-- SUSPENSÃO
 --------------------------------------------------------------------
-local jumpBtn = Instance.new("TextButton")
-jumpBtn.Name = "JumpMobileBtn"
+local secAir = createSection(pageSuspensao, "Suspensão a Ar", 1)
+airStatus = Instance.new("TextLabel")
+airStatus.BackgroundTransparency = 1
+airStatus.Size = UDim2.new(1, 0, 0, 18)
+airStatus.Text = "Estado: ALTO"
+airStatus.Font = Enum.Font.GothamBold
+airStatus.TextSize = 12
+airStatus.TextColor3 = C.on
+airStatus.TextXAlignment = Enum.TextXAlignment.Left
+airStatus.LayoutOrder = 1
+airStatus.Parent = secAir
+
+local frontDownBox = makeInput(secAir, "Desce FRENTE (-5 a 5)", "0.50", 2)
+local rearDownBox  = makeInput(secAir, "Desce TRÁS (-5 a 5)", "0.50", 3)
+local frontUpBox   = makeInput(secAir, "Sobe FRENTE (-5 a 5)", "0", 4)
+local rearUpBox    = makeInput(secAir, "Sobe TRÁS (-5 a 5)", "0", 5)
+local speedBox     = makeInput(secAir, "Vel. altura (0.05-8)", "0.55", 6)
+local easeBox      = makeInput(secAir, "Suavidade (0.02-0.6)", "0.12", 7)
+
+makeButton(secAir, "Aplicar Config Suspensão", 8, function()
+	local fd, rd = parseNum(frontDownBox.Text), parseNum(rearDownBox.Text)
+	local fu, ru = parseNum(frontUpBox.Text), parseNum(rearUpBox.Text)
+	local s, e = parseNum(speedBox.Text), parseNum(easeBox.Text)
+	if fd then Air.FrontHeightDown = math.clamp(fd, -5, 5) end
+	if rd then Air.RearHeightDown = math.clamp(rd, -5, 5) end
+	if fu then Air.FrontHeightUp = math.clamp(fu, -5, 5) end
+	if ru then Air.RearHeightUp = math.clamp(ru, -5, 5) end
+	if s then Air.Speed = math.clamp(s, 0.05, 8) end
+	if e then Air.Ease = math.clamp(e, 0.02, 0.6) end
+	frontDownBox.Text = string.format("%.2f", Air.FrontHeightDown)
+	rearDownBox.Text = string.format("%.2f", Air.RearHeightDown)
+	frontUpBox.Text = string.format("%.2f", Air.FrontHeightUp)
+	rearUpBox.Text = string.format("%.2f", Air.RearHeightUp)
+	speedBox.Text = string.format("%.2f", Air.Speed)
+	easeBox.Text = string.format("%.2f", Air.Ease)
+end)
+makeButton(secAir, "Alternar Suspensão", 9, function() toggleAir() end)
+
+local secAirOp = createSection(pageSuspensao, "Opacidade Botão + Cadeado", 2)
+local airOpBox = makeInput(secAirOp, "Transparência (0-1)", "0", 1)
+makeButton(secAirOp, "Aplicar Opacidade", 2, function()
+	local v = parseNum(airOpBox.Text)
+	if v then
+		Settings.AirBtnOpacity = math.clamp(v, 0, 1)
+		airOpBox.Text = string.format("%.2f", Settings.AirBtnOpacity)
+		applyAirBtnOpacity()
+	end
+end)
+
+local secTilt = createSection(pageSuspensao, "Camber ao rebaixar (EXTRA)", 3)
+makeToggle(secTilt, "Ativar Camber Animado", false, 1, function(val)
+	Air.TiltEnabled = val
+	if not val then
+		Air.CurrentFrontTilt = 0
+		Air.CurrentRearTilt = 0
+		applyWheels()
+	end
+end)
+local frontTiltBox = makeInput(secTilt, "Camber FRENTE extra", "0.15", 2)
+local rearTiltBox = makeInput(secTilt, "Camber TRÁS extra", "0.15", 3)
+local tiltSpeedBox = makeInput(secTilt, "Vel. inclinação (0.05-8)", "0.40", 4)
+makeButton(secTilt, "Aplicar Camber Animado", 5, function()
+	local f, r, ts = parseNum(frontTiltBox.Text), parseNum(rearTiltBox.Text), parseNum(tiltSpeedBox.Text)
+	if f then Air.FrontTiltAngle = f frontTiltBox.Text = string.format("%.4f", f) end
+	if r then Air.RearTiltAngle = r rearTiltBox.Text = string.format("%.4f", r) end
+	if ts then Air.TiltSpeed = math.clamp(ts, 0.05, 8) tiltSpeedBox.Text = string.format("%.2f", Air.TiltSpeed) end
+end)
+
+local secAirKey = createSection(pageSuspensao, "Tecla da Suspensão", 4)
+local airKeyBtn = Instance.new("TextButton")
+airKeyBtn.Size = UDim2.new(1, 0, 0, 28)
+airKeyBtn.BackgroundColor3 = C.apply
+airKeyBtn.Text = "Tecla: H"
+airKeyBtn.Font = Enum.Font.GothamBold
+airKeyBtn.TextSize = 12
+airKeyBtn.TextColor3 = C.text
+airKeyBtn.LayoutOrder = 1
+airKeyBtn.Parent = secAirKey
+uiCorner(airKeyBtn, 6)
+local waitingAirKey = false
+airKeyBtn.MouseButton1Click:Connect(function()
+	waitingAirKey = true
+	airKeyBtn.Text = "Pressione uma tecla..."
+	airKeyBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 20)
+end)
+
+--------------------------------------------------------------------
+-- STANCE
+--------------------------------------------------------------------
+local secStance = createSection(pageStance, "Stance Fixo = padrão do carro", 1)
+local stanceTabRow = Instance.new("Frame")
+stanceTabRow.Size = UDim2.new(1, 0, 0, 26)
+stanceTabRow.BackgroundTransparency = 1
+stanceTabRow.LayoutOrder = 1
+stanceTabRow.Parent = secStance
+
+local btnFrenteTab = Instance.new("TextButton")
+btnFrenteTab.Size = UDim2.new(0.48, 0, 1, 0)
+btnFrenteTab.BackgroundColor3 = C.tabActive
+btnFrenteTab.Text = "FRENTE"
+btnFrenteTab.Font = Enum.Font.GothamBold
+btnFrenteTab.TextSize = 11
+btnFrenteTab.TextColor3 = C.text
+btnFrenteTab.Parent = stanceTabRow
+uiCorner(btnFrenteTab, 6)
+
+local btnTrasTab = Instance.new("TextButton")
+btnTrasTab.Size = UDim2.new(0.48, 0, 1, 0)
+btnTrasTab.Position = UDim2.new(0.52, 0, 0, 0)
+btnTrasTab.BackgroundColor3 = C.tabInactive
+btnTrasTab.Text = "TRÁS"
+btnTrasTab.Font = Enum.Font.GothamBold
+btnTrasTab.TextSize = 11
+btnTrasTab.TextColor3 = C.dim
+btnTrasTab.Parent = stanceTabRow
+uiCorner(btnTrasTab, 6)
+
+local function getStanceConfig(key)
+	return (stanceActiveTab == "TRAS" and RearStance or FrontStance)[key]
+end
+local function setStanceConfig(key, val)
+	if stanceActiveTab == "TRAS" then RearStance[key] = val else FrontStance[key] = val end
+end
+
+local stanceBoxes = {}
+stanceBoxes.PositionX = makeStanceRow(secStance, "Lados (X)", "PositionX", 2, getStanceConfig, setStanceConfig, 0.02)
+stanceBoxes.PositionY = makeStanceRow(secStance, "Altura base (Y)", "PositionY", 3, getStanceConfig, setStanceConfig, 0.02)
+stanceBoxes.PositionZ = makeStanceRow(secStance, "Frente/Trás (Z)", "PositionZ", 4, getStanceConfig, setStanceConfig, 0.02)
+stanceBoxes.Camber = makeStanceRow(secStance, "Camber base", "Camber", 5, getStanceConfig, setStanceConfig, 0.02)
+
+local function refreshStanceBoxes()
+	for key, box in pairs(stanceBoxes) do
+		box.Text = string.format("%.3f", getStanceConfig(key))
+	end
+end
+refreshStanceBoxes()
+
+btnFrenteTab.MouseButton1Click:Connect(function()
+	stanceActiveTab = "FRENTE"
+	btnFrenteTab.BackgroundColor3 = C.tabActive
+	btnFrenteTab.TextColor3 = C.text
+	btnTrasTab.BackgroundColor3 = C.tabInactive
+	btnTrasTab.TextColor3 = C.dim
+	refreshStanceBoxes()
+end)
+btnTrasTab.MouseButton1Click:Connect(function()
+	stanceActiveTab = "TRAS"
+	btnTrasTab.BackgroundColor3 = C.tabActive
+	btnTrasTab.TextColor3 = C.text
+	btnFrenteTab.BackgroundColor3 = C.tabInactive
+	btnFrenteTab.TextColor3 = C.dim
+	refreshStanceBoxes()
+end)
+
+makeButton(secStance, "Zerar Stance", 6, function()
+	FrontStance.PositionX, FrontStance.PositionY, FrontStance.PositionZ, FrontStance.Camber = 0, 0, 0, 0
+	RearStance.PositionX, RearStance.PositionY, RearStance.PositionZ, RearStance.Camber = 0, 0, 0, 0
+	refreshStanceBoxes()
+	applyWheels()
+end)
+
+--------------------------------------------------------------------
+-- TELEPORTE
+--------------------------------------------------------------------
+local secTP = createSection(pageTeleporte, "Save + Teleporte", 1)
+makeButton(secTP, "Salvar Posição", 1, function() SavePosition() end)
+makeButton(secTP, "Teleportar", 2, function() TeleportToSaved() end)
+
+local secTPKey = createSection(pageTeleporte, "Tecla de Atalho", 2)
+local tpKeybindBtn = Instance.new("TextButton")
+tpKeybindBtn.Size = UDim2.new(1, 0, 0, 28)
+tpKeybindBtn.BackgroundColor3 = C.apply
+tpKeybindBtn.Text = "Tecla: T"
+tpKeybindBtn.Font = Enum.Font.GothamBold
+tpKeybindBtn.TextSize = 12
+tpKeybindBtn.TextColor3 = C.text
+tpKeybindBtn.LayoutOrder = 1
+tpKeybindBtn.Parent = secTPKey
+uiCorner(tpKeybindBtn, 6)
+tpKeybindBtn.MouseButton1Click:Connect(function()
+	tpState.waitingKey = true
+	tpKeybindBtn.Text = "Pressione uma tecla..."
+	tpKeybindBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 20)
+end)
+
+local secMobileTP = createSection(pageTeleporte, "Botão Mobile", 3)
+makeToggle(secMobileTP, "Ativar Botão Mobile", false, 1, function(val)
+	tpState.mobileEnabled = val
+	if tpMobileBtn then tpMobileBtn.Visible = val end
+end)
+local tpSizeBox = makeInput(secMobileTP, "Tamanho (40-140)", "60", 2)
+local tpTransBox = makeInput(secMobileTP, "Transparência (0-1)", "0", 3)
+makeButton(secMobileTP, "Aplicar Botão Mobile", 4, function()
+	local s = parseNum(tpSizeBox.Text)
+	local t = parseNum(tpTransBox.Text)
+	if s then tpState.btnSize = math.clamp(s, 40, 140) end
+	if t then tpState.transparency = math.clamp(t, 0, 1) end
+	tpSizeBox.Text = tostring(tpState.btnSize)
+	tpTransBox.Text = string.format("%.2f", tpState.transparency)
+	if tpMobileBtn then
+		tpMobileBtn.Size = UDim2.new(0, tpState.btnSize, 0, tpState.btnSize)
+		tpMobileBtn.TextSize = math.floor(tpState.btnSize * 0.4)
+	end
+	applyTPBtnOpacity()
+end)
+
+--------------------------------------------------------------------
+-- CÂMERA
+--------------------------------------------------------------------
+local secSpec = createSection(pageCamera, "Spectate", 1)
+local specLabel = Instance.new("TextLabel")
+specLabel.BackgroundTransparency = 1
+specLabel.Size = UDim2.new(1, 0, 0, 18)
+specLabel.Text = "Alvo: Nenhum"
+specLabel.Font = Enum.Font.Gotham
+specLabel.TextSize = 12
+specLabel.TextColor3 = C.dim
+specLabel.TextXAlignment = Enum.TextXAlignment.Left
+specLabel.LayoutOrder = 1
+specLabel.Parent = secSpec
+
+local row = Instance.new("Frame")
+row.Size = UDim2.new(1, 0, 0, 28)
+row.BackgroundTransparency = 1
+row.LayoutOrder = 2
+row.Parent = secSpec
+
+local function miniBtn(parent, text, x, color)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0.3, -4, 1, 0)
+	b.Position = UDim2.new(x, 0, 0, 0)
+	b.BackgroundColor3 = color or C.apply
+	b.Text = text
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.TextColor3 = C.text
+	b.Parent = parent
+	uiCorner(b, 6)
+	return b
+end
+
+local prevBtn = miniBtn(row, "< Prev", 0)
+local nextBtn = miniBtn(row, "Next >", 0.35)
+local stopBtn = miniBtn(row, "Parar", 0.7, C.red)
+
+prevBtn.MouseButton1Click:Connect(function()
+	local t = cycleSpectate(-1)
+	specLabel.Text = t and ("Alvo: " .. t.Name) or "Alvo: Nenhum"
+end)
+nextBtn.MouseButton1Click:Connect(function()
+	local t = cycleSpectate(1)
+	specLabel.Text = t and ("Alvo: " .. t.Name) or "Alvo: Nenhum"
+end)
+stopBtn.MouseButton1Click:Connect(function()
+	stopSpectate()
+	specLabel.Text = "Alvo: Nenhum"
+end)
+
+makeButton(secSpec, "Espectar Eu", 3, function()
+	if startSpectate(player) then
+		specLabel.Text = "Alvo: " .. player.Name .. " (você)"
+	end
+end)
+
+makeToggle(secSpec, "Destravar Câmera", false, 4, function(val)
+	fixCamEnabled = val
+	if val and camState.spectating then
+		stopSpectate()
+		specLabel.Text = "Alvo: Nenhum"
+	end
+end)
+
+--------------------------------------------------------------------
+-- Botões mobile: pulo / ar / TP
+--------------------------------------------------------------------
+jumpBtn = Instance.new("TextButton")
 jumpBtn.Size = UDim2.new(0, 60, 0, 60)
 jumpBtn.Position = UDim2.new(1, -80, 0.55, -30)
 jumpBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
@@ -494,11 +1098,9 @@ jumpBtn.ZIndex = 20
 jumpBtn.Parent = sg
 uiCorner(jumpBtn, 12)
 uiStroke(jumpBtn, Color3.fromRGB(90, 90, 90), 1.5)
-
 local setJumpLock = makeDraggable(jumpBtn)
 
-local jumpLocked = false
-local jumpLockBtn = Instance.new("TextButton")
+jumpLockBtn = Instance.new("TextButton")
 jumpLockBtn.Size = UDim2.new(0, 22, 0, 22)
 jumpLockBtn.Position = UDim2.new(1, -11, 0, -11)
 jumpLockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -511,52 +1113,145 @@ jumpLockBtn.ZIndex = 25
 jumpLockBtn.Parent = jumpBtn
 uiCorner(jumpLockBtn, 6)
 uiStroke(jumpLockBtn, Color3.fromRGB(90, 90, 90), 1)
-
+local jumpLocked = false
 jumpLockBtn.MouseButton1Click:Connect(function()
 	jumpLocked = not jumpLocked
 	setJumpLock(jumpLocked)
 	jumpLockBtn.Text = jumpLocked and "🔒" or "🔓"
+	applyJumpButtonOpacity()
 end)
 
-function applyJumpButtonOpacity()
-	local t = Settings.Opacity
-	jumpBtn.BackgroundTransparency = math.clamp(0.35 + t * 0.65, 0, 1)
-	jumpBtn.TextTransparency = t
-	jumpLockBtn.BackgroundTransparency = math.clamp(0.35 + t * 0.65, 0, 1)
-	jumpLockBtn.TextTransparency = t
-	local st = jumpBtn:FindFirstChildOfClass("UIStroke")
-	if st then st.Transparency = t end
-	local st2 = jumpLockBtn:FindFirstChildOfClass("UIStroke")
-	if st2 then st2.Transparency = t end
-end
-
---------------------------------------------------------------------
--- Funções
---------------------------------------------------------------------
-function doJump()
+local function doJump()
 	local character = player.Character
 	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
 	local seat = humanoid.SeatPart
 	if not seat or not seat:IsA("VehicleSeat") then return end
-
 	local vehicle = seat:FindFirstAncestorOfClass("Model") or seat.Parent
 	local root = vehicle and (vehicle.PrimaryPart or seat)
 	if not root then return end
-
 	local vel = root.AssemblyLinearVelocity
 	root.AssemblyLinearVelocity = Vector3.new(vel.X, Settings.JumpHeight, vel.Z)
 end
-
 jumpBtn.MouseButton1Click:Connect(doJump)
 
+airBtn = Instance.new("TextButton")
+airBtn.Size = UDim2.new(0, 60, 0, 60)
+airBtn.Position = UDim2.new(1, -80, 0.55, 40)
+airBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+airBtn.BackgroundTransparency = 0.35
+airBtn.Text = "v"
+airBtn.Font = Enum.Font.GothamBold
+airBtn.TextSize = 28
+airBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+airBtn.AutoButtonColor = false
+airBtn.Active = true
+airBtn.ZIndex = 20
+airBtn.Parent = sg
+uiCorner(airBtn, 12)
+uiStroke(airBtn, Color3.fromRGB(90, 90, 90), 1.5)
+
+local airDragLocked, airDragging, airDidDrag = false, false, false
+local airDragStart, airStartPos
+local AIR_DRAG_THRESHOLD = 12
+
+airBtn.InputBegan:Connect(function(input)
+	if airDragLocked then return end
+	if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	airDragging = true
+	airDidDrag = false
+	airDragStart = input.Position
+	airStartPos = airBtn.Position
+end)
+table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+	if airDragLocked or not airDragging then return end
+	if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+	local d = input.Position - airDragStart
+	if not airDidDrag and d.Magnitude >= AIR_DRAG_THRESHOLD then airDidDrag = true end
+	if airDidDrag then
+		airBtn.Position = UDim2.new(airStartPos.X.Scale, airStartPos.X.Offset + d.X, airStartPos.Y.Scale, airStartPos.Y.Offset + d.Y)
+	end
+end))
+local function endAirInput(input)
+	if not airDragging then return end
+	if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	if not airDidDrag then toggleAir() end
+	airDragging = false
+	airDidDrag = false
+end
+airBtn.InputEnded:Connect(endAirInput)
+table.insert(connections, UserInputService.InputEnded:Connect(endAirInput))
+
+airLockBtn = Instance.new("TextButton")
+airLockBtn.Size = UDim2.new(0, 22, 0, 22)
+airLockBtn.Position = UDim2.new(1, -11, 0, -11)
+airLockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+airLockBtn.BackgroundTransparency = 0.35
+airLockBtn.Text = "🔓"
+airLockBtn.Font = Enum.Font.GothamBold
+airLockBtn.TextSize = 12
+airLockBtn.TextColor3 = C.text
+airLockBtn.ZIndex = 25
+airLockBtn.Parent = airBtn
+uiCorner(airLockBtn, 6)
+uiStroke(airLockBtn, Color3.fromRGB(90, 90, 90), 1)
+airLockBtn.MouseButton1Click:Connect(function()
+	airDragLocked = not airDragLocked
+	airLockBtn.Text = airDragLocked and "🔒" or "🔓"
+	applyAirBtnOpacity()
+end)
+
+-- Botão TP mobile
+tpMobileBtn = Instance.new("TextButton")
+tpMobileBtn.Name = "TPMobileBtn"
+tpMobileBtn.Size = UDim2.new(0, tpState.btnSize, 0, tpState.btnSize)
+tpMobileBtn.Position = UDim2.new(1, -80, 0.5, -30)
+tpMobileBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+tpMobileBtn.BackgroundTransparency = 0.35
+tpMobileBtn.Text = "TP"
+tpMobileBtn.Font = Enum.Font.GothamBold
+tpMobileBtn.TextSize = math.floor(tpState.btnSize * 0.4)
+tpMobileBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpMobileBtn.Visible = false
+tpMobileBtn.ZIndex = 20
+tpMobileBtn.Parent = sg
+uiCorner(tpMobileBtn, 12)
+uiStroke(tpMobileBtn, Color3.fromRGB(90, 90, 90), 1.5)
+tpMobileBtn.MouseButton1Click:Connect(TeleportToSaved)
+local setTPLock = makeDraggable(tpMobileBtn)
+
+tpLockBtn = Instance.new("TextButton")
+tpLockBtn.Size = UDim2.new(0, 22, 0, 22)
+tpLockBtn.Position = UDim2.new(1, -11, 0, -11)
+tpLockBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+tpLockBtn.BackgroundTransparency = 0.35
+tpLockBtn.Text = "🔓"
+tpLockBtn.Font = Enum.Font.GothamBold
+tpLockBtn.TextSize = 12
+tpLockBtn.TextColor3 = C.text
+tpLockBtn.ZIndex = 25
+tpLockBtn.Parent = tpMobileBtn
+uiCorner(tpLockBtn, 6)
+uiStroke(tpLockBtn, Color3.fromRGB(90, 90, 90), 1)
+local tpLocked = false
+tpLockBtn.MouseButton1Click:Connect(function()
+	tpLocked = not tpLocked
+	setTPLock(tpLocked)
+	tpLockBtn.Text = tpLocked and "🔒" or "🔓"
+	applyTPBtnOpacity()
+end)
+
+refreshAirBtnIcon()
+applyJumpButtonOpacity()
+applyAirBtnOpacity()
+applyTPBtnOpacity()
+
 --------------------------------------------------------------------
--- Abrir / Fechar
+-- Menu
 --------------------------------------------------------------------
 local menuOpen, animating = false, false
-
-function openMenu()
+local function openMenu()
 	if animating then return end
 	animating = true
 	menu.Visible = true
@@ -564,18 +1259,15 @@ function openMenu()
 	menu.BackgroundTransparency = 0.35
 	local t1 = TweenService:Create(uiScale, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = Settings.PanelScale })
 	local t2 = TweenService:Create(menu, TweenInfo.new(0.2), { BackgroundTransparency = 0 })
-	t1:Play()
-	t2:Play()
+	t1:Play() t2:Play()
 	t1.Completed:Connect(function() animating = false end)
 end
-
-function closeMenu()
+local function closeMenu()
 	if animating then return end
 	animating = true
 	local t1 = TweenService:Create(uiScale, TweenInfo.new(0.18), { Scale = Settings.PanelScale * 0.85 })
 	local t2 = TweenService:Create(menu, TweenInfo.new(0.16), { BackgroundTransparency = 0.4 })
-	t1:Play()
-	t2:Play()
+	t1:Play() t2:Play()
 	t1.Completed:Connect(function()
 		menu.Visible = false
 		menu.BackgroundTransparency = 0
@@ -583,60 +1275,146 @@ function closeMenu()
 		animating = false
 	end)
 end
-
 toggleBtn.MouseButton1Click:Connect(function()
 	menuOpen = not menuOpen
-	if menuOpen then
-		toggleBtn.Text = "✕"
-		openMenu()
-	else
-		toggleBtn.Text = "Config X"
-		closeMenu()
-	end
+	if menuOpen then toggleBtn.Text = "✕" openMenu() else toggleBtn.Text = "Config X" closeMenu() end
 end)
 
---------------------------------------------------------------------
--- Teclado
---------------------------------------------------------------------
 UserInputService.InputBegan:Connect(function(input, gp)
-	if waitingKey and input.UserInputType == Enum.UserInputType.Keyboard then
+	if waitingJumpKey and input.UserInputType == Enum.UserInputType.Keyboard then
 		Settings.JumpKey = input.KeyCode
-		keybindBtn.Text = "Tecla: " .. input.KeyCode.Name
-		keybindBtn.BackgroundColor3 = C.apply
-		waitingKey = false
+		jumpKeyBtn.Text = "Tecla: " .. input.KeyCode.Name
+		jumpKeyBtn.BackgroundColor3 = C.apply
+		waitingJumpKey = false
 		return
 	end
-
-	if not waitingKey and input.KeyCode == Settings.JumpKey and not gp then
-		doJump()
+	if waitingAirKey and input.UserInputType == Enum.UserInputType.Keyboard then
+		Air.Key = input.KeyCode
+		airKeyBtn.Text = "Tecla: " .. input.KeyCode.Name
+		airKeyBtn.BackgroundColor3 = C.apply
+		waitingAirKey = false
+		return
 	end
+	if tpState.waitingKey and input.UserInputType == Enum.UserInputType.Keyboard then
+		tpState.keybind = input.KeyCode
+		tpKeybindBtn.Text = "Tecla: " .. input.KeyCode.Name
+		tpKeybindBtn.BackgroundColor3 = C.apply
+		tpState.waitingKey = false
+		return
+	end
+	if gp then return end
+	if input.KeyCode == Settings.JumpKey then doJump()
+	elseif input.KeyCode == Air.Key then toggleAir()
+	elseif input.KeyCode == tpState.keybind then TeleportToSaved() end
 end)
 
 --------------------------------------------------------------------
--- Gravidade
+-- Loop
 --------------------------------------------------------------------
-RunService.Heartbeat:Connect(function()
+local carCheck = 0
+RunService.Heartbeat:Connect(function(dt)
+	-- câmera spectate (sem delay)
+	if camState.spectating and camState.spectateTarget then
+		local char = camState.spectateTarget.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local root = char:FindFirstChild("HumanoidRootPart")
+			local sub = hum or root
+			if sub then
+				if camera.CameraType ~= Enum.CameraType.Custom then
+					camera.CameraType = Enum.CameraType.Custom
+				end
+				if camera.CameraSubject ~= sub then
+					camera.CameraSubject = sub
+				end
+			end
+		else
+			stopSpectate()
+			specLabel.Text = "Alvo: Nenhum"
+		end
+	end
+	if fixCamEnabled and not camState.spectating then
+		if camera.CameraType ~= Enum.CameraType.Custom then
+			camera.CameraType = Enum.CameraType.Custom
+		end
+		local char = player.Character
+		local h = char and char:FindFirstChildOfClass("Humanoid")
+		if h and camera.CameraSubject ~= h then
+			camera.CameraSubject = h
+		end
+	end
+
 	local character = player.Character
 	if not character then
 		workspace.Gravity = Settings.GravityOutside
-		return
-	end
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
-		workspace.Gravity = Settings.GravityInside
 	else
-		workspace.Gravity = Settings.GravityOutside
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
+			workspace.Gravity = Settings.GravityInside
+		else
+			workspace.Gravity = Settings.GravityOutside
+		end
 	end
+
+	carCheck += dt
+	if carCheck >= 0.5 then
+		carCheck = 0
+		local car = findPlayerCar()
+		if car and car ~= lastCar then
+			lastCar = car
+			table.clear(originalOffsets)
+			getWheelAttachments(car)
+			Air.CurrentFront = Air.FrontHeightUp
+			Air.CurrentRear = Air.RearHeightUp
+			Air.CurrentFrontTilt = 0
+			Air.CurrentRearTilt = 0
+			Air.Lowered = false
+			refreshAirStatus()
+			refreshAirBtnIcon()
+			applyWheels()
+		elseif not car then
+			lastCar = nil
+		end
+	end
+
+	if lastCar then
+		local frontTarget = Air.Lowered and Air.FrontHeightDown or Air.FrontHeightUp
+		local rearTarget  = Air.Lowered and Air.RearHeightDown or Air.RearHeightUp
+		local frontTiltTarget = (Air.Lowered and Air.TiltEnabled) and Air.FrontTiltAngle or 0
+		local rearTiltTarget  = (Air.Lowered and Air.TiltEnabled) and Air.RearTiltAngle or 0
+
+		local function stepAxis(current, targetY, lag, speed)
+			local maxStep = (speed or Air.Speed) * dt * (1 - lag)
+			local diff = targetY - current
+			if math.abs(diff) <= maxStep then
+				current = targetY
+			else
+				current = current + math.sign(diff) * maxStep
+			end
+			current = current + (targetY - current) * math.clamp(Air.Ease * 8 * dt, 0, 1)
+			return current
+		end
+
+		Air.CurrentFront = stepAxis(Air.CurrentFront, frontTarget, Air.FrontLag, Air.Speed)
+		Air.CurrentRear = stepAxis(Air.CurrentRear, rearTarget, Air.RearLag, Air.Speed)
+		Air.CurrentFrontTilt = stepAxis(Air.CurrentFrontTilt, frontTiltTarget, 0, Air.TiltSpeed)
+		Air.CurrentRearTilt = stepAxis(Air.CurrentRearTilt, rearTiltTarget, 0, Air.TiltSpeed)
+		applyWheels()
+	end
+end)
+
+player.CharacterAdded:Connect(function()
+	task.wait(0.4)
+	if not camState.spectating then restoreNormalCam() end
 end)
 
 task.defer(function()
 	task.wait(0.15)
 	local vp = camera.ViewportSize
-	local w = menu.AbsoluteSize.X
-	local h = menu.AbsoluteSize.Y
+	local w, h = menu.AbsoluteSize.X, menu.AbsoluteSize.Y
 	if w > 0 and h > 0 then
-		menu.Position = UDim2.new(0, (vp.X - w)/2, 0, (vp.Y - h)/2)
+		menu.Position = UDim2.new(0, (vp.X - w) / 2, 0, (vp.Y - h) / 2)
 	end
 end)
 
-print("Config X carregado!")
+print("Config X OK (Teleporte + Câmera)")
